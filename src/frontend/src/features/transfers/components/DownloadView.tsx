@@ -9,6 +9,7 @@ import { downloadFile, downloadFileInIframe } from "../api/useDownload";
 import {
   ensureEncryptionServiceWorker,
   registerEncryptionKey,
+  startServiceWorkerKeepalive,
   streamingDownloadUrl,
   unregisterEncryptionKey,
 } from "../upload/encryptionServiceWorker";
@@ -84,6 +85,13 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
   );
   const downloadUrl = initialUrlRef.current;
 
+  // The raw key string that's currently registered with the SW. Kept in a
+  // ref (not state) so it survives re-renders without causing them, and so
+  // ``triggerDownload`` can re-register it synchronously right before a
+  // download click without waiting for a state update to flush. Cleared on
+  // unmount. Populated by ``registerKey`` for both the auto path and the
+  // paste path — the paste input can be cleared safely once this is set.
+  const activeKeyRef = useRef<string | null>(null);
   // Hand a key to the SW and flip to `ready`. Shared by the auto-effect
   // (backend key / URL fragment) and the paste box. A malformed key (wrong
   // length/base64) throws inside registerEncryptionKey → surfaces as an error the
@@ -94,8 +102,33 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
     const sw = await ensureEncryptionServiceWorker();
     if (!sw) return false;
     await registerEncryptionKey(sw, token, keyStr, transfer.files, chunkSize);
+    if (!mountedRef.current) {
+      // Resolved after the unmount cleanup already cleared these refs. Don't
+      // resurrect them — the caller decides whether to drop the key SW-side.
+      return true;
+    }
+    activeKeyRef.current = keyStr;
     registeredRef.current = true;
     return true;
+  };
+
+  // Belt-and-suspenders against the keepalive missing a tick (mobile tab
+  // suspend, background-throttled setInterval, a browser that killed the
+  // SW despite the pings): re-register the same key right before every
+  // download click. Idempotent — the SW's ``REGISTRY.set`` overwrites,
+  // handshake is a ~10ms postMessage round-trip when the worker is alive,
+  // and a click that would otherwise 500 with "Decryption key not loaded"
+  // now spins the worker back up + reloads the key transparently. Returns
+  // ``false`` when we've got nothing to re-register (should never happen
+  // once ``encryptionState === "ready"``, defensive nonetheless).
+  const refreshEncryptionKey = async (): Promise<boolean> => {
+    const keyStr = activeKeyRef.current;
+    if (!keyStr) return false;
+    try {
+      return await registerKey(keyStr);
+    } catch {
+      return false;
+    }
   };
 
   useEffect(() => {
@@ -121,10 +154,16 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
         const ok = await registerKey(autoKey);
         if (cancelled) {
           // Cleanup already ran while the handshake was in flight — drop the
-          // key we just registered so it doesn't linger in the SW. Skip if a
-          // newer attempt superseded us: its key is the one now under this
-          // token, and unregistering would break its decryption.
-          if (ok && registerAttemptRef.current === attempt) {
+          // key we just registered so it doesn't linger in the SW. While
+          // still mounted, skip if a newer attempt superseded us: its key is
+          // the one now under this token, and unregistering would break its
+          // decryption. After unmount nobody owns the token any more, so
+          // every successful registration gets dropped — a later attempt
+          // may have failed (ack timeout) and left ours as the survivor.
+          if (
+            ok &&
+            (!mountedRef.current || registerAttemptRef.current === attempt)
+          ) {
             unregisterEncryptionKey(token);
           }
           return;
@@ -139,29 +178,57 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
     };
   }, [isEncrypted, autoKey, transfer.confidential, transfer.encryption_chunk_size, transfer.files, token]);
 
-  // Drop the key from the SW registry on unmount (covers both the auto path
-  // and a pasted key). The SW outlives the page and could be reused for
-  // another transfer in the same tab, so stale keys are needless retention.
+  // Unmount-only. Deliberately not in the [token] effect below: that
+  // cleanup also runs on an in-place token change (SPA navigation from one
+  // /t/… link to another reuses this instance), and a false ``mountedRef``
+  // would then turn every later paste and download click into a silent
+  // no-op for the rest of the instance's life.
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+    };
+  }, []);
+
+  // Drop the key from the SW registry when the token goes away (unmount, or
+  // in-place token change). Covers both the auto path and a pasted key. The
+  // SW outlives the page and could be reused for another transfer in the
+  // same tab, so stale keys are needless retention. Also clear the
+  // in-memory copy: keeping it around after the page is gone would let a
+  // stray ``triggerDownload`` (from a lingering handler on a detached DOM
+  // node, etc.) re-register a key the user was done with.
+  useEffect(() => {
+    return () => {
+      activeKeyRef.current = null;
       if (registeredRef.current) unregisterEncryptionKey(token);
     };
   }, [token]);
+
+  // Firefox (and Chrome) terminate an idle SW after ~30s. Once handleDownload
+  // has returned the streamed Response via respondWith, no further events
+  // reach the worker — the browser considers it idle mid-download, kills it,
+  // and the ciphertext stream aborts. Ping every 10s while the download page
+  // is up (and the SW is ready to serve) to keep it alive. Only spun up for
+  // encrypted transfers — legacy plaintext downloads go 302 → S3 direct and
+  // don't touch the SW.
+  useEffect(() => {
+    if (!isEncrypted || encryptionState !== "ready") return;
+    return startServiceWorkerKeepalive();
+  }, [isEncrypted, encryptionState]);
 
   const submitPastedKey = async () => {
     const key = pastedKey.trim();
     if (!key) return;
     setPasteError(false);
     setEncryptionState("loading");
-    const attempt = ++registerAttemptRef.current;
+    ++registerAttemptRef.current;
     try {
       const ok = await registerKey(key);
       if (!mountedRef.current) {
         // The recipient navigated away mid-registration. Drop the key we
-        // just parked in the SW so it doesn't outlive the page. Mirrors
-        // the auto-key cleanup path; skip if a newer attempt overwrote us.
-        if (ok && registerAttemptRef.current === attempt) {
+        // just parked in the SW so it doesn't outlive the page. No
+        // "newer attempt" exemption here: after unmount nobody owns the
+        // token, and a later attempt may have failed and left ours behind.
+        if (ok) {
           unregisterEncryptionKey(token);
           registeredRef.current = false;
         }
@@ -210,13 +277,48 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
   // race: an anchor click triggers a top-level navigation the SW sometimes
   // doesn't intercept on the first click; sub-frame requests don't hit that
   // path and the Content-Disposition header still triggers a download.
-  const triggerDownload = (file: (typeof transfer.files)[number]) => {
+  const triggerDownload = async (file: (typeof transfer.files)[number]) => {
     if (isEncrypted) {
+      // Re-register the key immediately before opening the iframe. In the
+      // healthy path the SW is already alive (the keepalive is ticking) and
+      // this is a cheap idempotent no-op (~10ms handshake). In the edge
+      // case where the SW died anyway (mobile tab was backgrounded long
+      // enough for setInterval to be throttled below the idle threshold,
+      // browser bug, etc.), this spins it back up + reloads the key so
+      // the click doesn't 500 with "Decryption key not loaded". Fail
+      // closed: no iframe if the refresh didn't succeed — better a
+      // no-op click than a broken download.
+      ++registerAttemptRef.current;
+      const ok = await refreshEncryptionKey();
+      if (!mountedRef.current) {
+        // The recipient navigated away while the handshake was in flight.
+        // The unmount cleanup already sent an unregister, but the SW
+        // applies registrations asynchronously (importKey), so ours may
+        // have landed *after* that delete and the key would outlive the
+        // page. Drop it again — unconditionally, nobody owns the token
+        // after unmount — and don't bolt an iframe onto a page that's
+        // gone. Same guard as submitPastedKey and the auto-register effect.
+        if (ok) {
+          unregisterEncryptionKey(token);
+          registeredRef.current = false;
+        }
+        return;
+      }
+      if (!ok) return;
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
       iframe.src = streamingDownloadUrl(token, file.id, file.filename);
       document.body.appendChild(iframe);
-      setTimeout(() => iframe.remove(), 5000);
+      // 60s (vs the old 5s): the iframe hand-off happens once the browser
+      // sees Content-Disposition: attachment on the streamed Response,
+      // which for a large ciphertext arrives late — the backend has to
+      // negotiate the presigned URL, S3 has to serve the first byte, and
+      // the SW has to decrypt the first chunk before that header lands.
+      // The old 5s window silently killed large downloads on slow S3
+      // regions or first-byte-latency hiccups. 60s is comfortably above
+      // any realistic first-byte time; the browser's native download
+      // manager has taken over long before then in the healthy path.
+      setTimeout(() => iframe.remove(), 60_000);
     } else {
       downloadFile(token, file.id);
     }
@@ -225,7 +327,7 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
     downloadableFiles.forEach((file, i) => {
       setTimeout(() => {
         if (isEncrypted) {
-          triggerDownload(file);
+          void triggerDownload(file);
         } else {
           downloadFileInIframe(token, file.id);
         }
@@ -433,7 +535,7 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
                       expired ||
                       encryptionState !== "ready"
                     }
-                    onClick={() => triggerDownload(file)}
+                    onClick={() => void triggerDownload(file)}
                     aria-label={t("Download {{name}}", { name: file.filename })}
                     title={
                       expired
