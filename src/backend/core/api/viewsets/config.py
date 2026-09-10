@@ -38,6 +38,9 @@ class ConfigView(drf.views.APIView):
             "SCAN_MAX_FILE_SIZE": settings.SCAN_MAX_FILE_SIZE,
             "TRANSFER_EXPIRY_CHOICES": settings.TRANSFER_EXPIRY_CHOICES,
             "TRANSFER_DEFAULT_EXPIRY_DAYS": settings.TRANSFER_DEFAULT_EXPIRY_DAYS,
+            # Lets the form hide the confidential toggle on instances that
+            # opted out; finalize enforces the same flag server-side.
+            "TRANSFER_CONFIDENTIAL_ENABLED": settings.TRANSFER_CONFIDENTIAL_ENABLED,
             "HELP_URL": getattr(settings, "HELP_URL", ""),
         }
 

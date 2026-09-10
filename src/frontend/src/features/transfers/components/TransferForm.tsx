@@ -882,7 +882,10 @@ export function TransferForm() {
           {/* Confidential toggle. Free to flip until send: every transfer is
               encrypted, and this only decides whether the decryption key
               reaches our servers. Greyed while a Drive file is present (Drive
-              imports need the key server-side). */}
+              imports need the key server-side). Hidden entirely when the
+              instance opted out (TRANSFER_CONFIDENTIAL_ENABLED=false) — the
+              backend rejects a confidential finalize there too. */}
+          {config.TRANSFER_CONFIDENTIAL_ENABLED && (
           <div
             className="transfer-form__confidential"
             title={
@@ -932,6 +935,7 @@ export function TransferForm() {
               </p>
             )}
           </div>
+          )}
 
           {sharingMode === "email" && (
             <LabelledBox label={t("Send to")} variant="classic">
@@ -1023,10 +1027,13 @@ export function TransferForm() {
             <Alert type={VariantType.ERROR}>{submitError}</Alert>
           )}
 
+          {/* INFO, not WARNING: confidential is a protection the sender
+              chose on purpose. Lead with what it buys them; the skipped
+              antivirus check is stated as a consequence, not a threat. */}
           {draft.confidential && hasFiles && (
-            <Alert type={VariantType.WARNING}>
+            <Alert type={VariantType.INFO}>
               {t(
-                "This transfer won't be scanned for viruses: the decryption key never reaches our servers, so we can't inspect the files.",
+                "These files are encrypted before they leave your browser and our servers can't open them, so the antivirus check is skipped. Anyone with the link and its decryption key can read them.",
               )}
             </Alert>
           )}

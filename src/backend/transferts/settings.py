@@ -137,6 +137,13 @@ class Base(Configuration):
         environ_prefix=None,
         converter=int,
     )
+    # Whether senders may create confidential transfers (the decryption key
+    # never reaches us, so those files skip the antivirus scan). False hides
+    # the toggle in the form and makes finalize reject ``confidential``;
+    # transfers already created in that mode stay downloadable.
+    TRANSFER_CONFIDENTIAL_ENABLED = values.BooleanValue(
+        True, environ_name="TRANSFER_CONFIDENTIAL_ENABLED", environ_prefix=None
+    )
     TRANSFER_MAX_FILE_SIZE = values.PositiveIntegerValue(
         20 * 1024 * 1024 * 1024,  # 20 Go — cap on any individual file
         environ_name="TRANSFER_MAX_FILE_SIZE",

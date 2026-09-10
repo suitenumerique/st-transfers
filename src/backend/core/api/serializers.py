@@ -415,6 +415,12 @@ class DraftFinalizeSerializer(serializers.Serializer):
         # posted key outright; in normal mode it's required so the backend
         # can serve it to recipients.
         confidential = attrs.get("confidential", False)
+        if confidential and not settings.TRANSFER_CONFIDENTIAL_ENABLED:
+            raise serializers.ValidationError(
+                {
+                    "confidential": "Confidential transfers are disabled on this instance."
+                }
+            )
         key = attrs.get("encryption_key", "")
         if confidential and key:
             raise serializers.ValidationError(
