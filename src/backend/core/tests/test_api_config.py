@@ -92,6 +92,17 @@ class TestConfigView:
         assert response.status_code == 200
         assert response.data["LAGAUFRE"] == lagaufre_config
 
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_confidential_flag_follows_setting(self, api_client, settings, enabled):
+        """The form hides the confidential toggle from this flag alone, so it
+        must mirror the setting exactly (not just default to True)."""
+        settings.TRANSFER_CONFIDENTIAL_ENABLED = enabled
+
+        response = api_client.get(CONFIG_URL)
+
+        assert response.status_code == 200
+        assert response.data["TRANSFER_CONFIDENTIAL_ENABLED"] is enabled
+
     def test_returns_transfer_limits(self, api_client):
         """Config must always include transfer limit settings."""
         response = api_client.get(CONFIG_URL)

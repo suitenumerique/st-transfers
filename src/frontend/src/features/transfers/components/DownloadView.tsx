@@ -354,7 +354,7 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
           ? t("This file was not scanned for viruses because it is too large.")
           : transfer.confidential
             ? t(
-                "This transfer is confidential, so it could not be scanned for viruses: the decryption key never reached our servers.",
+                "Confidential transfer: this file is encrypted, so our antivirus couldn't check it.",
               )
             : t("This file was not scanned for viruses.");
       return (
@@ -445,7 +445,7 @@ export function DownloadView({ transfer, token, isOwner = false }: DownloadViewP
           className="download-view__scan-alert"
         >
           {t(
-            "This transfer is confidential, so it couldn't be scanned for viruses: the decryption key never reached our servers. Open the files with caution.",
+            "Confidential transfer: the sender encrypted these files and only your browser can open them. Our antivirus couldn't check them, so make sure you know the sender before opening them.",
           )}
         </Alert>
       )}

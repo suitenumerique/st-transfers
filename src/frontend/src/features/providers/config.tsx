@@ -32,6 +32,10 @@ export interface AppConfig {
   SCAN_MAX_FILE_SIZE: number;
   TRANSFER_EXPIRY_CHOICES: number[];
   TRANSFER_DEFAULT_EXPIRY_DAYS: number;
+  // False when the operator disabled confidential transfers: the form hides
+  // the toggle and the backend rejects a confidential finalize. Transfers
+  // already created in that mode stay downloadable.
+  TRANSFER_CONFIDENTIAL_ENABLED: boolean;
   // External help URL — sidebar's "?" footer button opens it in a new tab.
   // Empty string when the operator hasn't configured one (button hidden).
   HELP_URL: string;

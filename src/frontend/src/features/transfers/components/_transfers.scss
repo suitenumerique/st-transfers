@@ -22,7 +22,15 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+
+    // Visible, not hidden: the flex/min-height:0 chain is what confines
+    // the file list to its column, clipping here only served to hide
+    // whatever the options column overflowed with. On short viewports a
+    // confidential + email form (mode hint, recipients, notice, button)
+    // is taller than the column, and ``hidden`` swallowed the submit
+    // button with no way to scroll to it. Let it spill instead — the
+    // shell's __content (overflow: auto) picks up the scrolling.
+    overflow: visible;
 
     .transfer-form,
     .transfer-success,
@@ -48,16 +56,6 @@
   &__recent-title {
     margin: 0 0 var(--c--globals--spacings--sm);
     flex-shrink: 0;
-  }
-
-  // Mobile: keep the flex chain so short panels (success / failed) stay
-  // vertically centered, but let the upload section spill its overflow so
-  // a tall form can grow past the viewport — the shell's __content takes
-  // over scrolling once .home grows beyond its min-height: 100%.
-  @media (max-width: 768px) {
-    &__upload {
-      overflow: visible;
-    }
   }
 }
 

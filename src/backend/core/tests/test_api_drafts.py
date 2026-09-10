@@ -892,9 +892,7 @@ class TestDraftEncryption:
                 side_effect=lambda fn: fn(),
             ),
             patch("core.tasks.s3.sign_scan_url", return_value="http://s3/signed"),
-            patch(
-                "core.tasks.mint_request_token", return_value="test-jwt-token"
-            ),
+            patch("core.tasks.mint_request_token", return_value="test-jwt-token"),
             patch("core.tasks.requests.post") as mock_post,
         ):
             mock_post.return_value.json.return_value = {"job_id": "j-1"}
@@ -1075,6 +1073,26 @@ class TestDraftEncryption:
             )
         assert resp.status_code == 200, resp.data
         assert Transfer.objects.get(id=resp.data["id"]).confidential is True
+
+    def test_finalize_confidential_rejected_when_disabled(
+        self, patched_s3, authenticated_client, settings
+    ):
+        # The toggle is hidden client-side when the instance opts out, but
+        # a crafted request must hit the same wall: no transfer is created.
+        settings.TRANSFER_CONFIDENTIAL_ENABLED = False
+        initiate = _initiate_with_file(authenticated_client, plaintext_size=1024)
+        _complete_upload(
+            authenticated_client,
+            initiate["draft_id"],
+            initiate["transfer_file_id"],
+        )
+        before = Transfer.objects.count()
+
+        resp = _finalize(authenticated_client, initiate["draft_id"], confidential=True)
+
+        assert resp.status_code == 400, resp.data
+        assert "confidential" in resp.data
+        assert Transfer.objects.count() == before
 
     def test_confidential_with_drive_rejected_at_finalize(
         self, patched_s3, authenticated_client
@@ -1503,9 +1521,7 @@ class TestSubmitScanTask:
             scanner_post.call_args.kwargs["headers"]["Authorization"]
             == "Bearer test-jwt-token"
         )
-        assert scanner_post.call_args.args[0] == (
-            "http://scanner/api/v1.0/scan-async"
-        )
+        assert scanner_post.call_args.args[0] == ("http://scanner/api/v1.0/scan-async")
 
     def test_defers_when_key_not_yet_known(self, user, settings):
         """Upload is done but the user hasn't hit Send, so no key has reached us.

@@ -38,6 +38,7 @@ local Keycloak — no ProConnect needed. See [`docs/authentication.md`](docs/aut
 | `TRANSFER_EXPIRY_CHOICES` | `1,7,30` | Expiry options offered in the UI (days) |
 | `TRANSFER_DEFAULT_EXPIRY_DAYS` | 1 | Default expiry; must be in `TRANSFER_EXPIRY_CHOICES` |
 | `TRANSFER_PURGE_DELAY_HOURS` | 6 | Grace period between link closure and S3 deletion (one-shot links + expiry + manual deactivation) |
+| `TRANSFER_CONFIDENTIAL_ENABLED` | `True` | Offer the "confidential transfer" toggle. `False` hides it and makes finalize reject `confidential`; existing confidential transfers stay downloadable |
 
 Recipient count in email mode is hard-capped at 50 (in the serializer).
 

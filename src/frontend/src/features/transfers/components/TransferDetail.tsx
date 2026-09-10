@@ -320,11 +320,11 @@ export function TransferDetail({
           reused from TransferForm to avoid a second translation surface. */}
       {transfer.confidential && transfer.files.length > 0 && (
         <Alert
-          type={VariantType.WARNING}
+          type={VariantType.INFO}
           className="transfer-detail__scan-alert"
         >
           {t(
-            "This transfer won't be scanned for viruses: the decryption key never reaches our servers, so we can't inspect the files.",
+            "These files are encrypted before they leave your browser and our servers can't open them, so the antivirus check is skipped. Anyone with the link and its decryption key can read them.",
           )}
         </Alert>
       )}
